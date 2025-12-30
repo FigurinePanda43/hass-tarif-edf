@@ -14,6 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordinator
+from homeassistant.util import dt as dt_util
 
 from .const import (
     DEFAULT_REFRESH_INTERVAL,
@@ -74,7 +75,8 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
 
     async def get_tempo_day(self, date):
         date_str = date.strftime('%Y-%m-%d')
-        now = datetime.now().time()
+        # FIX: Utiliser l'heure locale de Home Assistant au lieu de UTC
+        now = dt_util.now().time()
         check_limit = str_to_time(TEMPO_TOMRROW_AVAILABLE_AT)
 
         for price in self.tempo_prices:
@@ -104,7 +106,8 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                 "tarif_actuel_ttc": None
             }
 
-        fresh_data_limit = datetime.now() - timedelta(days=self.config_entry.options.get("refresh_interval", DEFAULT_REFRESH_INTERVAL))
+        # FIX: Utiliser l'heure locale de Home Assistant au lieu de UTC
+        fresh_data_limit = dt_util.now() - timedelta(days=self.config_entry.options.get("refresh_interval", DEFAULT_REFRESH_INTERVAL))
 
         tarif_needs_update = self.data['last_refresh_at'] is None or self.data['last_refresh_at'] < fresh_data_limit
 
@@ -140,13 +143,15 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                         self.data['tempo_variable_hc_rouge_ttc'] = float(row[14].replace(",", "." ))
                         self.data['tempo_variable_hp_rouge_ttc'] = float(row[16].replace(",", "." ))
 
-                    self.data['last_refresh_at'] = datetime.now()
+                    # FIX: Utiliser l'heure locale de Home Assistant au lieu de UTC
+                    self.data['last_refresh_at'] = dt_util.now()
 
                     break
             response.close
 
         if data['contract_type'] == CONTRACT_TYPE_TEMPO:
-            today = date.today()
+            # FIX: Utiliser la date locale de Home Assistant au lieu de UTC
+            today = dt_util.now().date()
             yesterday = today - timedelta(days=1)
             tomorrow = today + timedelta(days=1)
 
@@ -164,7 +169,8 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
 
             currentColorCode = tempo_yesterday['codeJour']
 
-            if datetime.now().time() >= str_to_time(TEMPO_DAY_START_AT):
+            # FIX: Utiliser l'heure locale de Home Assistant au lieu de UTC
+            if dt_util.now().time() >= str_to_time(TEMPO_DAY_START_AT):
                 self.logger.info("Using today's tempo prices")
                 currentColorCode = tempo_today['codeJour']
             else:
@@ -175,7 +181,8 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                 self.data['tempo_couleur'] = color
                 self.data['tempo_variable_hp_ttc'] = self.data[f"tempo_variable_hp_{color}_ttc"]
                 self.data['tempo_variable_hc_ttc'] = self.data[f"tempo_variable_hc_{color}_ttc"]
-                self.data['last_refresh_at'] = datetime.now()
+                # FIX: Utiliser l'heure locale de Home Assistant au lieu de UTC
+                self.data['last_refresh_at'] = dt_util.now()
 
         default_offpeak_hours = None
         if data['contract_type'] == CONTRACT_TYPE_TEMPO:
@@ -187,7 +194,8 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
         elif data['contract_type'] in [CONTRACT_TYPE_HPHC, CONTRACT_TYPE_TEMPO] and off_peak_hours_ranges is not None:
             contract_type_key = 'hphc' if data['contract_type'] == CONTRACT_TYPE_HPHC else 'tempo'
             tarif_actuel = self.data[contract_type_key+'_variable_hp_ttc']
-            now = datetime.now().time()
+            # FIX: Utiliser l'heure locale de Home Assistant au lieu de UTC (FIX PRINCIPAL!)
+            now = dt_util.now().time()
             for range in off_peak_hours_ranges.split(','):
                 if not re.match(r'([0-1]?[0-9]|2[0-3]):[0-5][0-9]-([0-1]?[0-9]|2[0-3]):[0-5][0-9]', range):
                     continue
