@@ -149,6 +149,7 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             today = date.today()
             yesterday = today - timedelta(days=1)
             tomorrow = today + timedelta(days=1)
+            today_str = today.strftime('%Y-%m-%d')
 
             tempo_yesterday = await self.get_tempo_day(yesterday)
             tempo_today = await self.get_tempo_day(today)
@@ -158,23 +159,31 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             today_color = get_tempo_color_from_code(tempo_today['codeJour'])
             tomorrow_color = get_tempo_color_from_code(tempo_tomorrow['codeJour'])
 
+            # Si la couleur d'aujourd'hui est indéterminée mais qu'on l'avait déjà
+            # récupérée la veille comme couleur de "demain", on réutilise cette valeur
+            if today_color == "indéterminé" and self.data.get('tempo_demain_date') == today_str:
+                previous_tomorrow_color = self.data.get('tempo_couleur_demain')
+                if previous_tomorrow_color and previous_tomorrow_color != "indéterminé":
+                    self.logger.info(f"Réutilisation de la couleur de demain connue la veille: {previous_tomorrow_color}")
+                    today_color = previous_tomorrow_color
+
             self.data['tempo_couleur_hier'] = yesterday_color
             self.data['tempo_couleur_aujourdhui'] = today_color
             self.data['tempo_couleur_demain'] = tomorrow_color
-
-            currentColorCode = tempo_yesterday['codeJour']
+            # Stocker la date de demain pour pouvoir la réutiliser après minuit
+            self.data['tempo_demain_date'] = tomorrow.strftime('%Y-%m-%d')
 
             if datetime.now().time() >= str_to_time(TEMPO_DAY_START_AT):
                 self.logger.info("Using today's tempo prices")
-                currentColorCode = tempo_today['codeJour']
+                current_color = today_color
             else:
                 self.logger.info("Using yesterday's tempo prices")
+                current_color = yesterday_color
 
-            if currentColorCode in [1, 2, 3]:
-                color = get_tempo_color_from_code(currentColorCode)
-                self.data['tempo_couleur'] = color
-                self.data['tempo_variable_hp_ttc'] = self.data[f"tempo_variable_hp_{color}_ttc"]
-                self.data['tempo_variable_hc_ttc'] = self.data[f"tempo_variable_hc_{color}_ttc"]
+            if current_color != "indéterminé":
+                self.data['tempo_couleur'] = current_color
+                self.data['tempo_variable_hp_ttc'] = self.data[f"tempo_variable_hp_{current_color}_ttc"]
+                self.data['tempo_variable_hc_ttc'] = self.data[f"tempo_variable_hc_{current_color}_ttc"]
                 self.data['last_refresh_at'] = datetime.now()
 
         default_offpeak_hours = None
