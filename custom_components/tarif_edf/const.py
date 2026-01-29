@@ -25,4 +25,8 @@ TEMPO_OFFPEAK_HOURS="22:00-06:00"
 
 DEFAULT_REFRESH_INTERVAL=1
 
+# Storage constants
+STORAGE_VERSION = 1
+STORAGE_KEY = "tarif_edf_tempo_cache"
+
 PLATFORMS = [Platform.SENSOR]
