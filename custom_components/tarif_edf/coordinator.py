@@ -14,6 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordinator
+from homeassistant.helpers.storage import Store
 
 from .const import (
     DEFAULT_REFRESH_INTERVAL,
@@ -27,7 +28,9 @@ from .const import (
     TEMPO_COLORS_MAPPING,
     TEMPO_DAY_START_AT,
     TEMPO_TOMRROW_AVAILABLE_AT,
-    TEMPO_OFFPEAK_HOURS
+    TEMPO_OFFPEAK_HOURS,
+    STORAGE_VERSION,
+    STORAGE_KEY,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,6 +74,40 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             update_interval=timedelta(minutes=1),
         )
         self.config_entry = entry
+        self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry.entry_id}")
+        self._tempo_cache_loaded = False
+
+    async def _async_load_tempo_cache(self) -> None:
+        """Charge le cache Tempo depuis le stockage persistant."""
+        if self._tempo_cache_loaded:
+            return
+
+        stored_data = await self._store.async_load()
+        if stored_data:
+            self.logger.info("Chargement du cache Tempo depuis le stockage persistant")
+            # Restaurer les couleurs Tempo sauvegardées
+            if 'tempo_demain_date' in stored_data:
+                if self.data is None:
+                    self.data = {}
+                self.data['tempo_demain_date'] = stored_data.get('tempo_demain_date')
+                self.data['tempo_couleur_demain'] = stored_data.get('tempo_couleur_demain')
+                self.logger.info(
+                    f"Cache Tempo restauré: demain={self.data.get('tempo_couleur_demain')} "
+                    f"pour le {self.data.get('tempo_demain_date')}"
+                )
+        self._tempo_cache_loaded = True
+
+    async def _async_save_tempo_cache(self) -> None:
+        """Sauvegarde le cache Tempo dans le stockage persistant."""
+        if self.data is None:
+            return
+
+        cache_data = {
+            'tempo_demain_date': self.data.get('tempo_demain_date'),
+            'tempo_couleur_demain': self.data.get('tempo_couleur_demain'),
+        }
+        await self._store.async_save(cache_data)
+        self.logger.debug(f"Cache Tempo sauvegardé: {cache_data}")
 
     async def get_tempo_day(self, date):
         date_str = date.strftime('%Y-%m-%d')
@@ -96,13 +133,26 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
         data = self.config_entry.data
         previous_data = None if self.data is None else self.data.copy()
 
+        # Charger le cache Tempo depuis le stockage persistant au premier démarrage
+        if data['contract_type'] == CONTRACT_TYPE_TEMPO:
+            await self._async_load_tempo_cache()
+
         if previous_data is None:
+            # Préserver les données du cache si elles existent
+            cached_tempo_demain_date = self.data.get('tempo_demain_date') if self.data else None
+            cached_tempo_couleur_demain = self.data.get('tempo_couleur_demain') if self.data else None
+
             self.data = {
                 "contract_power": data['contract_power'],
                 "contract_type": data['contract_type'],
                 "last_refresh_at": None,
                 "tarif_actuel_ttc": None
             }
+
+            # Restaurer les données du cache
+            if cached_tempo_demain_date:
+                self.data['tempo_demain_date'] = cached_tempo_demain_date
+                self.data['tempo_couleur_demain'] = cached_tempo_couleur_demain
 
         fresh_data_limit = datetime.now() - timedelta(days=self.config_entry.options.get("refresh_interval", DEFAULT_REFRESH_INTERVAL))
 
@@ -172,6 +222,9 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             self.data['tempo_couleur_demain'] = tomorrow_color
             # Stocker la date de demain pour pouvoir la réutiliser après minuit
             self.data['tempo_demain_date'] = tomorrow.strftime('%Y-%m-%d')
+
+            # Sauvegarder le cache Tempo sur disque pour survivre aux redémarrages
+            await self._async_save_tempo_cache()
 
             if datetime.now().time() >= str_to_time(TEMPO_DAY_START_AT):
                 self.logger.info("Using today's tempo prices")
