@@ -4,6 +4,9 @@ Fork de [delphiki/hass-tarif-edf](https://github.com/delphiki/hass-tarif-edf) av
 
 ## Améliorations de ce fork
 
+### v2.3.0
+- **Prévisions Tempo J+1 à J+9** : Nouveaux capteurs affichant la couleur prédite et la probabilité pour les 9 prochains jours (source: open-dpe.fr)
+
 ### v2.2.1
 - **Correction du fuseau horaire** : Le changement de jour Tempo respecte maintenant le fuseau horaire configuré dans Home Assistant (et non plus UTC)
 
@@ -90,6 +93,25 @@ rm tarif_edf.zip
 | `sensor.tarif_rouge_tempo_heures_pleines_ttc` | Red days peak rate | EUR/kWh |
 | `sensor.tarif_tempo_fixe_ttc` | Fixed subscription rate | EUR/year |
 
+#### Capteurs de prévisions Tempo (J+1 à J+9)
+| Sensor | Description | Attributs |
+|--------|-------------|-----------|
+| `sensor.tempo_prevision_j_1` | Prévision couleur J+1 | `probabilite`, `date` |
+| `sensor.tempo_prevision_j_2` | Prévision couleur J+2 | `probabilite`, `date` |
+| `sensor.tempo_prevision_j_3` | Prévision couleur J+3 | `probabilite`, `date` |
+| `sensor.tempo_prevision_j_4` | Prévision couleur J+4 | `probabilite`, `date` |
+| `sensor.tempo_prevision_j_5` | Prévision couleur J+5 | `probabilite`, `date` |
+| `sensor.tempo_prevision_j_6` | Prévision couleur J+6 | `probabilite`, `date` |
+| `sensor.tempo_prevision_j_7` | Prévision couleur J+7 | `probabilite`, `date` |
+| `sensor.tempo_prevision_j_8` | Prévision couleur J+8 | `probabilite`, `date` |
+| `sensor.tempo_prevision_j_9` | Prévision couleur J+9 | `probabilite`, `date` |
+
+**Attributs disponibles :**
+- `probabilite` : Taux de confiance (0-100)
+- `probabilite_pourcent` : Format "XX%"
+- `date` : Date de la prévision (YYYY-MM-DD)
+- `jour` : Indicateur J+N
+
 ## Fonctionnement du Tempo
 
 ### Couleurs Tempo
@@ -110,3 +132,4 @@ La couleur de demain est sauvegardée sur disque. Si Home Assistant redémarre a
 
 - Tarifs : [data.gouv.fr](https://www.data.gouv.fr/)
 - Couleurs Tempo : [api-couleur-tempo.fr](https://www.api-couleur-tempo.fr/)
+- Prévisions Tempo : [open-dpe.fr](https://open-dpe.fr/tempo-forecast/)
