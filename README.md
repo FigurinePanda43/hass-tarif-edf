@@ -4,6 +4,9 @@ Fork de [delphiki/hass-tarif-edf](https://github.com/delphiki/hass-tarif-edf) av
 
 ## Améliorations de ce fork
 
+### v2.3.0
+- **Tarifs Tempo février 2026** : Ajout des nouveaux tarifs Tempo applicables au 01/02/2026 en attendant la mise à jour de data.gouv.fr. Les tarifs locaux sont utilisés automatiquement si la date est >= 01/02/2026.
+
 ### v2.2.2
 - **Correction de la synchronisation du cache** : La couleur de demain n'est plus écrasée par "indéterminé" quand l'API a des problèmes temporaires. Le cache n'est sauvegardé que si la couleur de demain est une vraie couleur (bleu, blanc, rouge).
 
@@ -111,7 +114,23 @@ La couleur de demain est sauvegardée sur disque. Le cache est protégé contre 
 - Si Home Assistant redémarre après minuit et avant 11h, l'intégration réutilise la couleur connue la veille au lieu d'afficher "indéterminé"
 - Si l'API retourne temporairement "indéterminé" pour demain alors que la couleur était déjà connue, la valeur du cache est préservée
 
+### Tarifs locaux (février 2026)
+
+Les tarifs Tempo de février 2026 sont intégrés directement dans l'intégration car data.gouv.fr n'est pas encore mis à jour. Ces tarifs sont utilisés automatiquement si la date est >= 01/02/2026.
+
+| Puissance | Abonnement | Bleu HC | Bleu HP | Blanc HC | Blanc HP | Rouge HC | Rouge HP |
+|-----------|------------|---------|---------|----------|----------|----------|----------|
+| 6 kVA     | 187,08 €/an | 0,1325 | 0,1612  | 0,1499   | 0,1871   | 0,1575   | 0,7060   |
+| 9 kVA     | 232,56 €/an | 0,1325 | 0,1612  | 0,1499   | 0,1871   | 0,1575   | 0,7060   |
+| 12 kVA    | 276,84 €/an | 0,1325 | 0,1612  | 0,1499   | 0,1871   | 0,1575   | 0,7060   |
+| 15 kVA    | 317,64 €/an | 0,1325 | 0,1612  | 0,1499   | 0,1871   | 0,1575   | 0,7060   |
+| 18 kVA    | 360,48 €/an | 0,1325 | 0,1612  | 0,1499   | 0,1871   | 0,1575   | 0,7060   |
+| 30 kVA    | 536,76 €/an | 0,1325 | 0,1612  | 0,1499   | 0,1871   | 0,1575   | 0,7060   |
+| 36 kVA    | 629,04 €/an | 0,1325 | 0,1612  | 0,1499   | 0,1871   | 0,1575   | 0,7060   |
+
+*Prix du kWh en €/kWh TTC*
+
 ## Sources de données
 
-- Tarifs : [data.gouv.fr](https://www.data.gouv.fr/)
+- Tarifs : [data.gouv.fr](https://www.data.gouv.fr/) (avec tarifs locaux pour février 2026)
 - Couleurs Tempo : [api-couleur-tempo.fr](https://www.api-couleur-tempo.fr/)

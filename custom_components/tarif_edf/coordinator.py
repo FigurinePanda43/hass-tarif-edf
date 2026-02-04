@@ -30,6 +30,7 @@ from .const import (
     TEMPO_DAY_START_AT,
     TEMPO_TOMRROW_AVAILABLE_AT,
     TEMPO_OFFPEAK_HOURS,
+    TEMPO_TARIFS_2026,
     STORAGE_VERSION,
     STORAGE_KEY,
 )
@@ -183,13 +184,29 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                         self.data['hphc_variable_hc_ttc'] = float(row[6].replace(",", "." ))
                         self.data['hphc_variable_hp_ttc'] = float(row[8].replace(",", "." ))
                     elif data['contract_type'] == CONTRACT_TYPE_TEMPO:
-                        self.data['tempo_fixe_ttc'] = float(row[4].replace(",", "." ))
-                        self.data['tempo_variable_hc_bleu_ttc'] = float(row[6].replace(",", "." ))
-                        self.data['tempo_variable_hp_bleu_ttc'] = float(row[8].replace(",", "." ))
-                        self.data['tempo_variable_hc_blanc_ttc'] = float(row[10].replace(",", "." ))
-                        self.data['tempo_variable_hp_blanc_ttc'] = float(row[12].replace(",", "." ))
-                        self.data['tempo_variable_hc_rouge_ttc'] = float(row[14].replace(",", "." ))
-                        self.data['tempo_variable_hp_rouge_ttc'] = float(row[16].replace(",", "." ))
+                        # Utiliser les tarifs locaux 2026 si la date est >= 01/02/2026
+                        today_date = dt_util.now().date()
+                        tarif_2026_date = datetime.strptime(TEMPO_TARIFS_2026["date_debut"], '%Y-%m-%d').date()
+
+                        if today_date >= tarif_2026_date and data['contract_power'] in TEMPO_TARIFS_2026["puissances"]:
+                            tarifs = TEMPO_TARIFS_2026["puissances"][data['contract_power']]
+                            self.data['tempo_fixe_ttc'] = tarifs["fixe_ttc"]
+                            self.data['tempo_variable_hc_bleu_ttc'] = tarifs["hc_bleu_ttc"]
+                            self.data['tempo_variable_hp_bleu_ttc'] = tarifs["hp_bleu_ttc"]
+                            self.data['tempo_variable_hc_blanc_ttc'] = tarifs["hc_blanc_ttc"]
+                            self.data['tempo_variable_hp_blanc_ttc'] = tarifs["hp_blanc_ttc"]
+                            self.data['tempo_variable_hc_rouge_ttc'] = tarifs["hc_rouge_ttc"]
+                            self.data['tempo_variable_hp_rouge_ttc'] = tarifs["hp_rouge_ttc"]
+                            self.logger.info(f"Utilisation des tarifs Tempo locaux (février 2026) pour {data['contract_power']} kVA")
+                        else:
+                            # Utiliser les tarifs de data.gouv.fr
+                            self.data['tempo_fixe_ttc'] = float(row[4].replace(",", "." ))
+                            self.data['tempo_variable_hc_bleu_ttc'] = float(row[6].replace(",", "." ))
+                            self.data['tempo_variable_hp_bleu_ttc'] = float(row[8].replace(",", "." ))
+                            self.data['tempo_variable_hc_blanc_ttc'] = float(row[10].replace(",", "." ))
+                            self.data['tempo_variable_hp_blanc_ttc'] = float(row[12].replace(",", "." ))
+                            self.data['tempo_variable_hc_rouge_ttc'] = float(row[14].replace(",", "." ))
+                            self.data['tempo_variable_hp_rouge_ttc'] = float(row[16].replace(",", "." ))
 
                     self.data['last_refresh_at'] = dt_util.now()
 
