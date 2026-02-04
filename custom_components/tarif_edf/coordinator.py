@@ -209,6 +209,7 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             yesterday_color = get_tempo_color_from_code(tempo_yesterday['codeJour'])
             today_color = get_tempo_color_from_code(tempo_today['codeJour'])
             tomorrow_color = get_tempo_color_from_code(tempo_tomorrow['codeJour'])
+            tomorrow_str = tomorrow.strftime('%Y-%m-%d')
 
             # Si la couleur d'aujourd'hui est indéterminée mais qu'on l'avait déjà
             # récupérée la veille comme couleur de "demain", on réutilise cette valeur
@@ -218,14 +219,26 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                     self.logger.info(f"Réutilisation de la couleur de demain connue la veille: {previous_tomorrow_color}")
                     today_color = previous_tomorrow_color
 
+            # Si la couleur de demain est indéterminée mais qu'on l'avait déjà
+            # récupérée et qu'elle est valide, on réutilise cette valeur du cache
+            if tomorrow_color == "indéterminé" and self.data.get('tempo_demain_date') == tomorrow_str:
+                cached_tomorrow_color = self.data.get('tempo_couleur_demain')
+                if cached_tomorrow_color and cached_tomorrow_color != "indéterminé":
+                    self.logger.info(f"Réutilisation de la couleur de demain déjà connue: {cached_tomorrow_color}")
+                    tomorrow_color = cached_tomorrow_color
+
             self.data['tempo_couleur_hier'] = yesterday_color
             self.data['tempo_couleur_aujourdhui'] = today_color
             self.data['tempo_couleur_demain'] = tomorrow_color
             # Stocker la date de demain pour pouvoir la réutiliser après minuit
-            self.data['tempo_demain_date'] = tomorrow.strftime('%Y-%m-%d')
+            self.data['tempo_demain_date'] = tomorrow_str
 
             # Sauvegarder le cache Tempo sur disque pour survivre aux redémarrages
-            await self._async_save_tempo_cache()
+            # Ne sauvegarder que si la couleur de demain est une vraie couleur
+            if tomorrow_color != "indéterminé":
+                await self._async_save_tempo_cache()
+            else:
+                self.logger.debug("Cache Tempo non sauvegardé: couleur de demain indéterminée")
 
             if dt_util.now().time() >= str_to_time(TEMPO_DAY_START_AT):
                 self.logger.info("Using today's tempo prices")
