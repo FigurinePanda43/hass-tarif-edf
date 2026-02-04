@@ -4,6 +4,9 @@ Fork de [delphiki/hass-tarif-edf](https://github.com/delphiki/hass-tarif-edf) av
 
 ## Améliorations de ce fork
 
+### v2.2.2
+- **Correction de la synchronisation du cache** : La couleur de demain n'est plus écrasée par "indéterminé" quand l'API a des problèmes temporaires. Le cache n'est sauvegardé que si la couleur de demain est une vraie couleur (bleu, blanc, rouge).
+
 ### v2.2.1
 - **Correction du fuseau horaire** : Le changement de jour Tempo respecte maintenant le fuseau horaire configuré dans Home Assistant (et non plus UTC)
 
@@ -104,7 +107,9 @@ rm tarif_edf.zip
 - **Couleur de demain disponible** : À partir de 11:00
 
 ### Gestion du cache
-La couleur de demain est sauvegardée sur disque. Si Home Assistant redémarre après minuit et avant 11h, l'intégration réutilise la couleur connue la veille au lieu d'afficher "indéterminé".
+La couleur de demain est sauvegardée sur disque. Le cache est protégé contre les problèmes de l'API :
+- Si Home Assistant redémarre après minuit et avant 11h, l'intégration réutilise la couleur connue la veille au lieu d'afficher "indéterminé"
+- Si l'API retourne temporairement "indéterminé" pour demain alors que la couleur était déjà connue, la valeur du cache est préservée
 
 ## Sources de données
 
