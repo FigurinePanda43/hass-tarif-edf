@@ -26,10 +26,12 @@ from .const import (
     TARIF_HPHC_URL,
     TARIF_TEMPO_URL,
     TEMPO_COLOR_API_URL,
+    TEMPO_FORECAST_API_URL,
     TEMPO_COLORS_MAPPING,
     TEMPO_DAY_START_AT,
     TEMPO_TOMRROW_AVAILABLE_AT,
     TEMPO_OFFPEAK_HOURS,
+    TEMPO_FORECAST_DAYS,
     STORAGE_VERSION,
     STORAGE_KEY,
 )
@@ -128,6 +130,25 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
         self.tempo_prices.append(response_json)
 
         return response_json
+
+    async def get_tempo_forecast(self) -> list:
+        """Récupère les prévisions Tempo depuis open-dpe.fr."""
+        try:
+            response = await self.hass.async_add_executor_job(
+                get_remote_file, TEMPO_FORECAST_API_URL
+            )
+            if response.status_code == 200:
+                forecast_data = response.json()
+                self.logger.debug(f"Prévisions Tempo récupérées: {len(forecast_data)} jours")
+                return forecast_data
+            else:
+                self.logger.warning(
+                    f"Erreur lors de la récupération des prévisions Tempo: {response.status_code}"
+                )
+                return []
+        except Exception as e:
+            self.logger.error(f"Exception lors de la récupération des prévisions Tempo: {e}")
+            return []
 
     async def _async_update_data(self) -> dict[Platform, dict[str, Any]]:
         """Get the latest data from Tarif EDF and updates the state."""
@@ -252,6 +273,24 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                 self.data['tempo_variable_hp_ttc'] = self.data[f"tempo_variable_hp_{current_color}_ttc"]
                 self.data['tempo_variable_hc_ttc'] = self.data[f"tempo_variable_hc_{current_color}_ttc"]
                 self.data['last_refresh_at'] = dt_util.now()
+
+            # Récupérer les prévisions Tempo (J+1 à J+9)
+            forecast_data = await self.get_tempo_forecast()
+            if forecast_data:
+                for i, forecast in enumerate(forecast_data[:TEMPO_FORECAST_DAYS]):
+                    day_num = i + 1
+                    self.data[f'tempo_prevision_j{day_num}_couleur'] = forecast.get('couleur', 'indéterminé')
+                    self.data[f'tempo_prevision_j{day_num}_probabilite'] = round(forecast.get('probability', 0) * 100)
+                    self.data[f'tempo_prevision_j{day_num}_date'] = forecast.get('date', '')
+                self.logger.info(f"Prévisions Tempo mises à jour pour {len(forecast_data)} jours")
+            else:
+                # En cas d'erreur, initialiser avec des valeurs par défaut
+                for i in range(TEMPO_FORECAST_DAYS):
+                    day_num = i + 1
+                    if f'tempo_prevision_j{day_num}_couleur' not in self.data:
+                        self.data[f'tempo_prevision_j{day_num}_couleur'] = 'indéterminé'
+                        self.data[f'tempo_prevision_j{day_num}_probabilite'] = 0
+                        self.data[f'tempo_prevision_j{day_num}_date'] = ''
 
         default_offpeak_hours = None
         if data['contract_type'] == CONTRACT_TYPE_TEMPO:
