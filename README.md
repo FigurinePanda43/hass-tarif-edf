@@ -4,8 +4,16 @@ Fork de [delphiki/hass-tarif-edf](https://github.com/delphiki/hass-tarif-edf) av
 
 ## Améliorations de ce fork
 
+### v2.3.1
+- **Correction : capteurs de prévision toujours indisponibles** : Un `KeyError` sur `tempo_variable_hp_ttc` (couleur indéterminée sans cache) faisait planter le coordinator, mettant tous les capteurs en "Indisponible"
+- **Correction : données périmées sur `tarif_tempo_couleur`** : Entre 06h et 11h, si la couleur du jour était inconnue, le capteur affichait la couleur de la veille au lieu d'être indisponible
+- **Correction : `"indéterminé"` affiché comme valeur** : Les capteurs de couleur affichent désormais "Indisponible" (unavailable) plutôt que la chaîne `"indéterminé"` quand la couleur est inconnue
+- **Amélioration : gestion des erreurs réseau** : Les appels à l'API couleur sont maintenant protégés par un `try/except` ; une erreur réseau ne fait plus planter le coordinator
+- **Amélioration : cache des prévisions** : L'API de prévision open-dpe.fr n'est plus appelée chaque minute mais toutes les heures, avec fallback sur le dernier résultat connu
+
 ### v2.3.0
 - **Prévisions Tempo J+1 à J+9** : Nouveaux capteurs affichant la couleur prédite et la probabilité pour les 9 prochains jours (source: open-dpe.fr)
+- **Correction du bug "indéterminé" 00h-11h** : La couleur d'aujourd'hui est résolue depuis le cache (couleur annoncée la veille), `tarif_tempo_couleur` continue d'utiliser la couleur d'hier jusqu'à 06h
 
 ### v2.2.1
 - **Correction du fuseau horaire** : Le changement de jour Tempo respecte maintenant le fuseau horaire configuré dans Home Assistant (et non plus UTC)
@@ -78,10 +86,10 @@ rm tarif_edf.zip
 ### Tempo Contract
 | Sensor | Description | Unit |
 |--------|-------------|------|
-| `sensor.tarif_tempo_couleur` | Current Tempo color (based on time of day) | - |
-| `sensor.tarif_tempo_couleur_hier` | Yesterday's Tempo color | - |
-| `sensor.tarif_tempo_couleur_aujourd_hui` | Today's Tempo color | - |
-| `sensor.tarif_tempo_couleur_demain` | Tomorrow's Tempo color | - |
+| `sensor.tarif_tempo_couleur` | Couleur active pour la facturation (change à 06:00, basée sur HP/HC) | - |
+| `sensor.tarif_tempo_couleur_hier` | Couleur Tempo d'hier | - |
+| `sensor.tarif_tempo_couleur_aujourd_hui` | Couleur Tempo d'aujourd'hui (minuit → minuit) | - |
+| `sensor.tarif_tempo_couleur_demain` | Couleur Tempo de demain (disponible après 11:00) | - |
 | `sensor.tarif_tempo_heures_creuses_ttc` | Current off-peak hours rate | EUR/kWh |
 | `sensor.tarif_tempo_heures_pleines_ttc` | Current peak hours rate | EUR/kWh |
 | `sensor.tarif_bleu_tempo_heures_creuses_ttc` | Blue days off-peak rate | EUR/kWh |
@@ -123,8 +131,19 @@ rm tarif_edf.zip
 - **Heures pleines** : 06:00 - 22:00
 - **Couleur de demain disponible** : À partir de 11:00
 
+### Différence entre `tarif_tempo_couleur` et `tarif_tempo_couleur_aujourd_hui`
+
+| | `tarif_tempo_couleur_aujourd_hui` | `tarif_tempo_couleur` |
+|---|---|---|
+| **Change à** | 00:00 (minuit) | 06:00 |
+| **Représente** | La couleur du jour calendaire | La couleur active pour la facturation EDF |
+| **Entre 00h et 06h** | Couleur d'aujourd'hui | Couleur d'hier (période EDF en cours) |
+| **Après 06h** | Couleur d'aujourd'hui | Couleur d'aujourd'hui |
+
+Entre 00:00 et 06:00, les deux capteurs peuvent donc afficher des couleurs différentes : c'est normal, la journée EDF ne commence qu'à 06:00.
+
 ### Gestion du cache
-La couleur de demain est sauvegardée sur disque. Si Home Assistant redémarre après minuit et avant 11h, l'intégration réutilise la couleur connue la veille au lieu d'afficher "indéterminé".
+La couleur de demain annoncée par EDF (après 11:00) est sauvegardée sur disque. Si Home Assistant redémarre après minuit et avant 11h, l'intégration réutilise automatiquement cette couleur pour renseigner `tarif_tempo_couleur_aujourd_hui`. Si aucune donnée cache n'est disponible (première installation, cache effacé), les capteurs de couleur s'affichent comme **Indisponible** jusqu'à ce que l'API retourne une couleur valide.
 
 ## Sources de données
 
