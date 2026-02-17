@@ -79,6 +79,8 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
         self.tempo_prices: dict[str, dict] = {}
         self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry.entry_id}")
         self._tempo_cache_loaded = False
+        self._forecast_cache: list = []
+        self._forecast_cache_time = None
 
     async def _async_load_tempo_cache(self) -> None:
         """Charge le cache Tempo depuis le stockage persistant."""
@@ -144,7 +146,12 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
         return response_json
 
     async def get_tempo_forecast(self) -> list:
-        """Récupère les prévisions Tempo depuis open-dpe.fr."""
+        """Récupère les prévisions Tempo depuis open-dpe.fr (mis en cache 1h)."""
+        now = dt_util.now()
+        if self._forecast_cache and self._forecast_cache_time and \
+                (now - self._forecast_cache_time).total_seconds() < 3600:
+            return self._forecast_cache
+
         try:
             response = await self.hass.async_add_executor_job(
                 get_remote_file, TEMPO_FORECAST_API_URL
@@ -152,15 +159,17 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             if response.status_code == 200:
                 forecast_data = response.json()
                 self.logger.debug(f"Prévisions Tempo récupérées: {len(forecast_data)} jours")
+                self._forecast_cache = forecast_data
+                self._forecast_cache_time = now
                 return forecast_data
             else:
                 self.logger.warning(
                     f"Erreur lors de la récupération des prévisions Tempo: {response.status_code}"
                 )
-                return []
+                return self._forecast_cache or []
         except Exception as e:
             self.logger.error(f"Exception lors de la récupération des prévisions Tempo: {e}")
-            return []
+            return self._forecast_cache or []
 
     async def _async_update_data(self) -> dict[Platform, dict[str, Any]]:
         """Get the latest data from Tarif EDF and updates the state."""
@@ -240,9 +249,15 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             tomorrow = today + timedelta(days=1)
             today_str = today.strftime('%Y-%m-%d')
 
-            tempo_yesterday = await self.get_tempo_day(yesterday)
-            tempo_today = await self.get_tempo_day(today)
-            tempo_tomorrow = await self.get_tempo_day(tomorrow)
+            try:
+                tempo_yesterday = await self.get_tempo_day(yesterday)
+                tempo_today = await self.get_tempo_day(today)
+                tempo_tomorrow = await self.get_tempo_day(tomorrow)
+            except Exception as e:
+                self.logger.error(f"Erreur lors de la récupération des couleurs Tempo: {e}")
+                tempo_yesterday = {'codeJour': 0}
+                tempo_today = {'codeJour': 0}
+                tempo_tomorrow = {'codeJour': 0}
 
             yesterday_color = get_tempo_color_from_code(tempo_yesterday['codeJour'])
             today_color = get_tempo_color_from_code(tempo_today['codeJour'])
@@ -273,11 +288,13 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                     self.logger.info(f"Réutilisation de la couleur de demain déjà connue: {cached_tomorrow_color}")
                     tomorrow_color = cached_tomorrow_color
 
-            self.data['tempo_couleur_hier'] = yesterday_color
-            self.data['tempo_couleur_aujourdhui'] = today_color
+            self.data['tempo_couleur_hier'] = yesterday_color if yesterday_color != "indéterminé" else None
+            # Ne stocker que les couleurs réelles (pas "indéterminé") pour que les capteurs
+            # soient "indisponibles" plutôt que d'afficher une valeur incorrecte
+            self.data['tempo_couleur_aujourdhui'] = today_color if today_color != "indéterminé" else None
             # Sauvegarder la couleur résolue d'aujourd'hui pour les mises à jour suivantes
             self.data['tempo_aujourdhui_date'] = today_str
-            self.data['tempo_couleur_demain'] = tomorrow_color
+            self.data['tempo_couleur_demain'] = tomorrow_color if tomorrow_color != "indéterminé" else None
             # Stocker la date de demain pour pouvoir la réutiliser après minuit
             self.data['tempo_demain_date'] = tomorrow_str
 
@@ -304,6 +321,11 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                 self.data['tempo_variable_hp_ttc'] = self.data[f"tempo_variable_hp_{current_color}_ttc"]
                 self.data['tempo_variable_hc_ttc'] = self.data[f"tempo_variable_hc_{current_color}_ttc"]
                 self.data['last_refresh_at'] = dt_util.now()
+            else:
+                # Couleur inconnue : vider les clés pour éviter d'afficher des données périmées
+                self.data['tempo_couleur'] = None
+                self.data['tempo_variable_hp_ttc'] = None
+                self.data['tempo_variable_hc_ttc'] = None
 
             # Récupérer les prévisions Tempo (J+1 à J+9)
             forecast_data = await self.get_tempo_forecast()
@@ -332,7 +354,10 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             self.data['tarif_actuel_ttc'] = self.data['base_variable_ttc']
         elif data['contract_type'] in [CONTRACT_TYPE_HPHC, CONTRACT_TYPE_TEMPO] and off_peak_hours_ranges is not None:
             contract_type_key = 'hphc' if data['contract_type'] == CONTRACT_TYPE_HPHC else 'tempo'
-            tarif_actuel = self.data[contract_type_key+'_variable_hp_ttc']
+            tarif_actuel = self.data.get(contract_type_key+'_variable_hp_ttc')
+            if tarif_actuel is None:
+                # Couleur indéterminée ou données tarifaires pas encore chargées
+                return self.data
             now = dt_util.now().time()
             for range in off_peak_hours_ranges.split(','):
                 if not re.match(r'([0-1]?[0-9]|2[0-3]):[0-5][0-9]-([0-1]?[0-9]|2[0-3]):[0-5][0-9]', range):
