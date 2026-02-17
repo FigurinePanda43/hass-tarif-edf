@@ -61,20 +61,19 @@ rm tarif_edf.zip
 ### Common Sensors (All Contracts)
 | Sensor | Description | Unit | Example |
 |--------|-------------|------|---------|
+| `sensor.puissance_souscrite_[type]_[power]kva` | Subscribed power | kVA | `sensor.puissance_souscrite_base_6kva` |
 | `sensor.tarif_actuel_[type]_[power]kva_ttc` | Current applicable rate | EUR/kWh | `sensor.tarif_actuel_base_6kva_ttc` |
 
 ### Base Contract
 | Sensor | Description | Unit |
 |--------|-------------|------|
 | `sensor.tarif_base_ttc` | Base rate | EUR/kWh |
-| `sensor.tarif_base_fixe_ttc` | Fixed subscription rate | EUR/year |
 
 ### HP/HC Contract (Peak/Off-Peak)
 | Sensor | Description | Unit |
 |--------|-------------|------|
 | `sensor.tarif_heures_creuses_ttc` | Off-peak hours rate | EUR/kWh |
 | `sensor.tarif_heures_pleines_ttc` | Peak hours rate | EUR/kWh |
-| `sensor.tarif_hphc_fixe_ttc` | Fixed subscription rate | EUR/year |
 
 ### Tempo Contract
 | Sensor | Description | Unit |
@@ -91,7 +90,6 @@ rm tarif_edf.zip
 | `sensor.tarif_blanc_tempo_heures_pleines_ttc` | White days peak rate | EUR/kWh |
 | `sensor.tarif_rouge_tempo_heures_creuses_ttc` | Red days off-peak rate | EUR/kWh |
 | `sensor.tarif_rouge_tempo_heures_pleines_ttc` | Red days peak rate | EUR/kWh |
-| `sensor.tarif_tempo_fixe_ttc` | Fixed subscription rate | EUR/year |
 
 #### Capteurs de prévisions Tempo (J+1 à J+9)
 | Sensor | Description | Attributs |
