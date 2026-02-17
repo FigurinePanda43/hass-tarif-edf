@@ -288,11 +288,13 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                     self.logger.info(f"Réutilisation de la couleur de demain déjà connue: {cached_tomorrow_color}")
                     tomorrow_color = cached_tomorrow_color
 
-            self.data['tempo_couleur_hier'] = yesterday_color
-            self.data['tempo_couleur_aujourdhui'] = today_color
+            self.data['tempo_couleur_hier'] = yesterday_color if yesterday_color != "indéterminé" else None
+            # Ne stocker que les couleurs réelles (pas "indéterminé") pour que les capteurs
+            # soient "indisponibles" plutôt que d'afficher une valeur incorrecte
+            self.data['tempo_couleur_aujourdhui'] = today_color if today_color != "indéterminé" else None
             # Sauvegarder la couleur résolue d'aujourd'hui pour les mises à jour suivantes
             self.data['tempo_aujourdhui_date'] = today_str
-            self.data['tempo_couleur_demain'] = tomorrow_color
+            self.data['tempo_couleur_demain'] = tomorrow_color if tomorrow_color != "indéterminé" else None
             # Stocker la date de demain pour pouvoir la réutiliser après minuit
             self.data['tempo_demain_date'] = tomorrow_str
 
@@ -319,6 +321,11 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                 self.data['tempo_variable_hp_ttc'] = self.data[f"tempo_variable_hp_{current_color}_ttc"]
                 self.data['tempo_variable_hc_ttc'] = self.data[f"tempo_variable_hc_{current_color}_ttc"]
                 self.data['last_refresh_at'] = dt_util.now()
+            else:
+                # Couleur inconnue : vider les clés pour éviter d'afficher des données périmées
+                self.data['tempo_couleur'] = None
+                self.data['tempo_variable_hp_ttc'] = None
+                self.data['tempo_variable_hc_ttc'] = None
 
             # Récupérer les prévisions Tempo (J+1 à J+9)
             forecast_data = await self.get_tempo_forecast()
