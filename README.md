@@ -4,6 +4,9 @@ Fork de [delphiki/hass-tarif-edf](https://github.com/delphiki/hass-tarif-edf) av
 
 ## Améliorations de ce fork
 
+### v2.3.2
+- **Correction : `UnboundLocalError` sur la variable `range`** : La variable de boucle `range` dans la gestion des plages HP/HC écrasait le built-in Python, causant un crash à chaque mise à jour du coordinator
+
 ### v2.3.1
 - **Correction : capteurs de prévision toujours indisponibles** : Un `KeyError` sur `tempo_variable_hp_ttc` (couleur indéterminée sans cache) faisait planter le coordinator, mettant tous les capteurs en "Indisponible"
 - **Correction : données périmées sur `tarif_tempo_couleur`** : Entre 06h et 11h, si la couleur du jour était inconnue, le capteur affichait la couleur de la veille au lieu d'être indisponible
