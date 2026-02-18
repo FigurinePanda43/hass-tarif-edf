@@ -370,11 +370,11 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                 # Couleur indéterminée ou données tarifaires pas encore chargées
                 return self.data
             now = dt_util.now().time()
-            for range in off_peak_hours_ranges.split(','):
-                if not re.match(r'([0-1]?[0-9]|2[0-3]):[0-5][0-9]-([0-1]?[0-9]|2[0-3]):[0-5][0-9]', range):
+            for hour_range in off_peak_hours_ranges.split(','):
+                if not re.match(r'([0-1]?[0-9]|2[0-3]):[0-5][0-9]-([0-1]?[0-9]|2[0-3]):[0-5][0-9]', hour_range):
                     continue
 
-                hours = range.split('-')
+                hours = hour_range.split('-')
                 start_at = str_to_time(hours[0])
                 end_at = str_to_time(hours[1])
 
