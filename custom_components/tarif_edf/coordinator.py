@@ -34,6 +34,8 @@ from .const import (
     TEMPO_OFFPEAK_HOURS,
     TEMPO_FORECAST_DAYS,
     TEMPO_FALLBACK_FILENAME,
+    AUTOPRODUCER_INJECTION_SURCHARGE_HT,
+    SUBSCRIPTION_VAT_RATE,
     STORAGE_VERSION,
     STORAGE_KEY,
 )
@@ -258,6 +260,36 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             f"(dernière grille officielle active: {official_str})"
         )
 
+    def _apply_autoproducer_surcharge(self, contract_type: str) -> None:
+        """Ajoute la majoration d'abonnement « auto-producteur avec injection ».
+
+        Activable via l'option ``autoproducteur_injection`` de la configuration.
+        Le montant de la grille Tarif Bleu (9,84 €/an HT) est converti en TTC
+        (TVA 20 % sur l'abonnement) puis ajouté au prix de l'abonnement annuel
+        du contrat concerné. Appelée après le calcul de l'abonnement (officiel ou
+        de secours), une seule fois par rafraîchissement des tarifs.
+        """
+        fixe_key = {
+            CONTRACT_TYPE_BASE: 'base_fixe_ttc',
+            CONTRACT_TYPE_HPHC: 'hphc_fixe_ttc',
+            CONTRACT_TYPE_TEMPO: 'tempo_fixe_ttc',
+        }.get(contract_type)
+
+        enabled = bool(self.config_entry.options.get("autoproducteur_injection", False))
+        self.data['autoproducteur_injection'] = enabled
+
+        if not enabled or fixe_key is None or self.data.get(fixe_key) is None:
+            return
+
+        surcharge_ttc = round(
+            AUTOPRODUCER_INJECTION_SURCHARGE_HT * (1 + SUBSCRIPTION_VAT_RATE), 2
+        )
+        self.data[fixe_key] = round(self.data[fixe_key] + surcharge_ttc, 2)
+        self.logger.info(
+            f"Majoration auto-producteur avec injection appliquée: "
+            f"+{surcharge_ttc} €/an TTC sur {fixe_key}"
+        )
+
     async def _async_update_data(self) -> dict[Platform, dict[str, Any]]:
         """Get the latest data from Tarif EDF and updates the state."""
         data = self.config_entry.data
@@ -339,6 +371,9 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             # data.gouv.fr n'a pas publié une grille au moins aussi récente.
             if data['contract_type'] == CONTRACT_TYPE_TEMPO:
                 self._apply_tempo_fallback(official_effective_date, data['contract_power'])
+
+            # Majoration abonnement auto-producteur avec injection (option)
+            self._apply_autoproducer_surcharge(data['contract_type'])
 
         if data['contract_type'] == CONTRACT_TYPE_TEMPO:
             today = dt_util.now().date()
