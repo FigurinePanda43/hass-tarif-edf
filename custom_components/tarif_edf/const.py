@@ -21,9 +21,20 @@ TEMPO_COLORS_MAPPING={
     3: "rouge"
 }
 TEMPO_FORECAST_DAYS=9
+# Fichier de secours contenant une grille tarifaire Tempo officielle déjà
+# connue mais pas encore publiée sur data.gouv.fr. Il est utilisé
+# automatiquement tant que data.gouv.fr n'a pas publié une grille au moins
+# aussi récente, puis ignoré sans intervention (voir coordinator.py).
+TEMPO_FALLBACK_FILENAME="tempo_fallback.csv"
 TEMPO_DAY_START_AT="06:00"
 TEMPO_TOMRROW_AVAILABLE_AT="11:00"
 TEMPO_OFFPEAK_HOURS="22:00-06:00"
+
+# Majoration annuelle de l'abonnement pour les auto-producteurs individuels
+# avec injection (grille Tarif Bleu au 01/08/2026 : 9,84 €/an HT).
+# La TVA à 20 % s'applique à l'abonnement.
+AUTOPRODUCER_INJECTION_SURCHARGE_HT=9.84
+SUBSCRIPTION_VAT_RATE=0.20
 
 DEFAULT_REFRESH_INTERVAL=1
 
