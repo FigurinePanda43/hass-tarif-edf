@@ -7,6 +7,7 @@ import re
 from typing import Any
 import json
 import logging
+import os
 import requests
 import csv
 
@@ -32,6 +33,7 @@ from .const import (
     TEMPO_TOMRROW_AVAILABLE_AT,
     TEMPO_OFFPEAK_HOURS,
     TEMPO_FORECAST_DAYS,
+    TEMPO_FALLBACK_FILENAME,
     STORAGE_VERSION,
     STORAGE_KEY,
 )
@@ -176,6 +178,86 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             self.logger.error(f"Exception lors de la récupération des prévisions Tempo: {e}")
             return self._forecast_cache or []
 
+    def _apply_tempo_fallback(self, official_effective_date: str | None, power: str) -> None:
+        """Applique une grille tarifaire Tempo de secours si nécessaire.
+
+        Le fichier ``tempo_fallback.csv`` (livré avec l'intégration) contient une
+        grille tarifaire officielle déjà connue mais pas encore présente dans le
+        jeu de données data.gouv.fr. La grille de secours n'est appliquée que si :
+
+        - sa date de début est plus récente que celle de la grille officielle
+          actuellement active sur data.gouv.fr, ET
+        - cette date de début est déjà atteinte (grille en vigueur).
+
+        Dès que data.gouv.fr publie une grille dont la date de début est au moins
+        aussi récente que celle du fichier de secours, ce dernier est ignoré
+        automatiquement : aucune mise à jour de l'intégration n'est nécessaire.
+        """
+        self.data['tempo_tarifs_secours'] = False
+
+        fallback_path = os.path.join(os.path.dirname(__file__), TEMPO_FALLBACK_FILENAME)
+        if not os.path.exists(fallback_path):
+            return
+
+        try:
+            with open(fallback_path, encoding='utf-8') as fallback_file:
+                fallback_rows = list(csv.reader(fallback_file, delimiter=';'))
+        except OSError as err:
+            self.logger.warning(f"Lecture du fichier de secours Tempo impossible: {err}")
+            return
+
+        fallback_row = None
+        for row in fallback_rows:
+            if len(row) > 16 and row[1] == '' and row[2] == power:
+                fallback_row = row
+                break
+        if fallback_row is None:
+            return
+
+        try:
+            fallback_date = datetime.strptime(fallback_row[0].strip(), '%d/%m/%Y').date()
+        except ValueError:
+            self.logger.warning(f"Date de la grille de secours Tempo invalide: {fallback_row[0]!r}")
+            return
+
+        official_date = None
+        if official_effective_date:
+            try:
+                official_date = datetime.strptime(official_effective_date.strip(), '%d/%m/%Y').date()
+            except ValueError:
+                official_date = None
+
+        today = dt_util.now().date()
+
+        # Grille de secours pas encore en vigueur
+        if today < fallback_date:
+            return
+
+        # data.gouv.fr propose déjà une grille au moins aussi récente : on la garde
+        if official_date is not None and official_date >= fallback_date:
+            self.logger.info(
+                f"Grille officielle Tempo du {official_date.strftime('%d/%m/%Y')} disponible sur "
+                f"data.gouv.fr, fichier de secours ignoré"
+            )
+            return
+
+        # Appliquer les tarifs de secours (colonnes TTC identiques au fichier officiel)
+        self.data['tempo_fixe_ttc'] = float(fallback_row[4].replace(",", "."))
+        self.data['tempo_variable_hc_bleu_ttc'] = float(fallback_row[6].replace(",", "."))
+        self.data['tempo_variable_hp_bleu_ttc'] = float(fallback_row[8].replace(",", "."))
+        self.data['tempo_variable_hc_blanc_ttc'] = float(fallback_row[10].replace(",", "."))
+        self.data['tempo_variable_hp_blanc_ttc'] = float(fallback_row[12].replace(",", "."))
+        self.data['tempo_variable_hc_rouge_ttc'] = float(fallback_row[14].replace(",", "."))
+        self.data['tempo_variable_hp_rouge_ttc'] = float(fallback_row[16].replace(",", "."))
+        self.data['tempo_tarifs_secours'] = True
+        self.data['last_refresh_at'] = dt_util.now()
+        official_str = official_date.strftime('%d/%m/%Y') if official_date else "aucune"
+        self.logger.warning(
+            f"Tarifs Tempo de secours appliqués (grille du {fallback_date.strftime('%d/%m/%Y')}) : "
+            f"data.gouv.fr n'a pas encore publié cette grille "
+            f"(dernière grille officielle active: {official_str})"
+        )
+
     async def _async_update_data(self) -> dict[Platform, dict[str, Any]]:
         """Get the latest data from Tarif EDF and updates the state."""
         data = self.config_entry.data
@@ -225,6 +307,10 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             parsed_content = csv.reader(response.content.decode('utf-8').splitlines(), delimiter=';')
             rows = list(parsed_content)
 
+            # Date de début de la grille officielle active (utilisée pour décider
+            # si la grille de secours Tempo doit s'appliquer)
+            official_effective_date = None
+
             for row in rows:
                 if row[1] == '' and row[2] == data['contract_power']:
                     if data['contract_type'] == CONTRACT_TYPE_BASE:
@@ -242,11 +328,17 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                         self.data['tempo_variable_hp_blanc_ttc'] = float(row[12].replace(",", "." ))
                         self.data['tempo_variable_hc_rouge_ttc'] = float(row[14].replace(",", "." ))
                         self.data['tempo_variable_hp_rouge_ttc'] = float(row[16].replace(",", "." ))
+                        official_effective_date = row[0]
 
                     self.data['last_refresh_at'] = dt_util.now()
 
                     break
             response.close
+
+            # Grille tarifaire Tempo de secours : appliquée uniquement tant que
+            # data.gouv.fr n'a pas publié une grille au moins aussi récente.
+            if data['contract_type'] == CONTRACT_TYPE_TEMPO:
+                self._apply_tempo_fallback(official_effective_date, data['contract_power'])
 
         if data['contract_type'] == CONTRACT_TYPE_TEMPO:
             today = dt_util.now().date()
