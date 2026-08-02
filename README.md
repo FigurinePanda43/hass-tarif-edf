@@ -6,6 +6,8 @@ Fork de [delphiki/hass-tarif-edf](https://github.com/delphiki/hass-tarif-edf) av
 
 ### v2.4.0
 - **Grille tarifaire Tempo de secours** : Ajout d'un fichier de secours (`tempo_fallback.csv`) contenant la grille officielle EDF du **1ᵉʳ août 2026**, utilisé automatiquement tant que data.gouv.fr ne l'a pas encore publiée. Dès que data.gouv.fr met en ligne une grille au moins aussi récente, le fichier de secours est ignoré **sans aucune intervention** ni mise à jour de l'intégration. Un log d'avertissement signale quand les tarifs de secours sont actifs.
+- **Option « Auto-producteur avec injection »** : Nouvelle case à cocher dans la configuration (Configurer → options). Lorsqu'elle est activée, la majoration d'abonnement de la grille Tarif Bleu (9,84 €/an HT, soit **11,81 €/an TTC**) est ajoutée au prix de l'abonnement.
+- **Nouveau capteur « Abonnement … TTC »** : Affiche le prix de l'abonnement annuel TTC (majoration auto-producteur incluse le cas échéant), jusque-là uniquement calculé en interne.
 
 ### v2.3.2
 - **Correction : `UnboundLocalError` sur la variable `range`** : La variable de boucle `range` dans la gestion des plages HP/HC écrasait le built-in Python, causant un crash à chaque mise à jour du coordinator
