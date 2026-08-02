@@ -69,6 +69,24 @@ async def async_setup_entry(
                 )
             )
 
+    # Capteur d'abonnement annuel TTC (inclut la majoration auto-producteur
+    # avec injection si l'option est activée)
+    fixe_key = {
+        CONTRACT_TYPE_BASE: 'base_fixe_ttc',
+        CONTRACT_TYPE_HPHC: 'hphc_fixe_ttc',
+        CONTRACT_TYPE_TEMPO: 'tempo_fixe_ttc',
+    }.get(coordinator.data['contract_type'])
+    if fixe_key is not None and coordinator.data.get(fixe_key) is not None:
+        sensors.append(
+            TarifEdfSensor(coordinator, fixe_key, f"Abonnement {coordinator.data['contract_type']} {coordinator.data['contract_power']}kVA TTC", 'EUR/an')
+        )
+
+    # Abonnement en €/h (mois courant) : à intégrer pour obtenir le coût total
+    if coordinator.data.get('abonnement_horaire_ttc') is not None:
+        sensors.append(
+            TarifEdfSensor(coordinator, 'abonnement_horaire_ttc', f"Abonnement horaire {coordinator.data['contract_type']} {coordinator.data['contract_power']}kVA TTC", 'EUR/h')
+        )
+
     if coordinator.data['tarif_actuel_ttc'] is not None:
         sensors.append(
             TarifEdfSensor(coordinator, 'tarif_actuel_ttc', f"Tarif actuel {coordinator.data['contract_type']} {coordinator.data['contract_power']}kVA TTC", 'EUR/kWh')

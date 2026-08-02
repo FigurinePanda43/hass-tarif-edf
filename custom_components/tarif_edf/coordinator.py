@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 from datetime import timedelta, datetime, date
+import calendar
 import time
 import re
 from typing import Any
 import json
 import logging
+import os
 import requests
 import csv
 
@@ -32,6 +34,9 @@ from .const import (
     TEMPO_TOMRROW_AVAILABLE_AT,
     TEMPO_OFFPEAK_HOURS,
     TEMPO_FORECAST_DAYS,
+    TEMPO_FALLBACK_FILENAME,
+    AUTOPRODUCER_INJECTION_SURCHARGE_HT,
+    SUBSCRIPTION_VAT_RATE,
     STORAGE_VERSION,
     STORAGE_KEY,
 )
@@ -176,6 +181,144 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             self.logger.error(f"Exception lors de la récupération des prévisions Tempo: {e}")
             return self._forecast_cache or []
 
+    def _apply_tempo_fallback(self, official_effective_date: str | None, power: str) -> None:
+        """Applique une grille tarifaire Tempo de secours si nécessaire.
+
+        Le fichier ``tempo_fallback.csv`` (livré avec l'intégration) contient une
+        grille tarifaire officielle déjà connue mais pas encore présente dans le
+        jeu de données data.gouv.fr. La grille de secours n'est appliquée que si :
+
+        - sa date de début est plus récente que celle de la grille officielle
+          actuellement active sur data.gouv.fr, ET
+        - cette date de début est déjà atteinte (grille en vigueur).
+
+        Dès que data.gouv.fr publie une grille dont la date de début est au moins
+        aussi récente que celle du fichier de secours, ce dernier est ignoré
+        automatiquement : aucune mise à jour de l'intégration n'est nécessaire.
+        """
+        self.data['tempo_tarifs_secours'] = False
+
+        fallback_path = os.path.join(os.path.dirname(__file__), TEMPO_FALLBACK_FILENAME)
+        if not os.path.exists(fallback_path):
+            return
+
+        try:
+            with open(fallback_path, encoding='utf-8') as fallback_file:
+                fallback_rows = list(csv.reader(fallback_file, delimiter=';'))
+        except OSError as err:
+            self.logger.warning(f"Lecture du fichier de secours Tempo impossible: {err}")
+            return
+
+        fallback_row = None
+        for row in fallback_rows:
+            if len(row) > 16 and row[1] == '' and row[2] == power:
+                fallback_row = row
+                break
+        if fallback_row is None:
+            return
+
+        try:
+            fallback_date = datetime.strptime(fallback_row[0].strip(), '%d/%m/%Y').date()
+        except ValueError:
+            self.logger.warning(f"Date de la grille de secours Tempo invalide: {fallback_row[0]!r}")
+            return
+
+        official_date = None
+        if official_effective_date:
+            try:
+                official_date = datetime.strptime(official_effective_date.strip(), '%d/%m/%Y').date()
+            except ValueError:
+                official_date = None
+
+        today = dt_util.now().date()
+
+        # Grille de secours pas encore en vigueur
+        if today < fallback_date:
+            return
+
+        # data.gouv.fr propose déjà une grille au moins aussi récente : on la garde
+        if official_date is not None and official_date >= fallback_date:
+            self.logger.info(
+                f"Grille officielle Tempo du {official_date.strftime('%d/%m/%Y')} disponible sur "
+                f"data.gouv.fr, fichier de secours ignoré"
+            )
+            return
+
+        # Appliquer les tarifs de secours (colonnes TTC identiques au fichier officiel)
+        self.data['tempo_fixe_ttc'] = float(fallback_row[4].replace(",", "."))
+        self.data['tempo_variable_hc_bleu_ttc'] = float(fallback_row[6].replace(",", "."))
+        self.data['tempo_variable_hp_bleu_ttc'] = float(fallback_row[8].replace(",", "."))
+        self.data['tempo_variable_hc_blanc_ttc'] = float(fallback_row[10].replace(",", "."))
+        self.data['tempo_variable_hp_blanc_ttc'] = float(fallback_row[12].replace(",", "."))
+        self.data['tempo_variable_hc_rouge_ttc'] = float(fallback_row[14].replace(",", "."))
+        self.data['tempo_variable_hp_rouge_ttc'] = float(fallback_row[16].replace(",", "."))
+        self.data['tempo_tarifs_secours'] = True
+        self.data['last_refresh_at'] = dt_util.now()
+        official_str = official_date.strftime('%d/%m/%Y') if official_date else "aucune"
+        self.logger.warning(
+            f"Tarifs Tempo de secours appliqués (grille du {fallback_date.strftime('%d/%m/%Y')}) : "
+            f"data.gouv.fr n'a pas encore publié cette grille "
+            f"(dernière grille officielle active: {official_str})"
+        )
+
+    def _apply_autoproducer_surcharge(self, contract_type: str) -> None:
+        """Ajoute la majoration d'abonnement « auto-producteur avec injection ».
+
+        Activable via l'option ``autoproducteur_injection`` de la configuration.
+        Le montant de la grille Tarif Bleu (9,84 €/an HT) est converti en TTC
+        (TVA 20 % sur l'abonnement) puis ajouté au prix de l'abonnement annuel
+        du contrat concerné. Appelée après le calcul de l'abonnement (officiel ou
+        de secours), une seule fois par rafraîchissement des tarifs.
+        """
+        fixe_key = {
+            CONTRACT_TYPE_BASE: 'base_fixe_ttc',
+            CONTRACT_TYPE_HPHC: 'hphc_fixe_ttc',
+            CONTRACT_TYPE_TEMPO: 'tempo_fixe_ttc',
+        }.get(contract_type)
+
+        enabled = bool(self.config_entry.options.get("autoproducteur_injection", False))
+        self.data['autoproducteur_injection'] = enabled
+
+        if not enabled or fixe_key is None or self.data.get(fixe_key) is None:
+            return
+
+        surcharge_ttc = round(
+            AUTOPRODUCER_INJECTION_SURCHARGE_HT * (1 + SUBSCRIPTION_VAT_RATE), 2
+        )
+        self.data[fixe_key] = round(self.data[fixe_key] + surcharge_ttc, 2)
+        self.logger.info(
+            f"Majoration auto-producteur avec injection appliquée: "
+            f"+{surcharge_ttc} €/an TTC sur {fixe_key}"
+        )
+
+    def _update_hourly_subscription(self, contract_type: str) -> None:
+        """Calcule le prix de l'abonnement en €/h pour le mois en cours.
+
+        L'abonnement annuel TTC est ramené à un coût mensuel (÷ 12), puis réparti
+        sur le nombre réel d'heures du mois courant (28, 29, 30 ou 31 jours × 24 h),
+        avec 6 décimales de précision.
+
+        Ainsi, un capteur d'intégration (somme de Riemann, unité €/h → €) branché
+        sur cette valeur accumule exactement le coût de l'abonnement : 1/12 de
+        l'annuel sur chaque mois, et le montant annuel complet sur douze mois,
+        quelle que soit la longueur des mois.
+        """
+        fixe_key = {
+            CONTRACT_TYPE_BASE: 'base_fixe_ttc',
+            CONTRACT_TYPE_HPHC: 'hphc_fixe_ttc',
+            CONTRACT_TYPE_TEMPO: 'tempo_fixe_ttc',
+        }.get(contract_type)
+
+        annual_ttc = self.data.get(fixe_key) if fixe_key else None
+        if annual_ttc is None:
+            self.data['abonnement_horaire_ttc'] = None
+            return
+
+        now = dt_util.now()
+        days_in_month = calendar.monthrange(now.year, now.month)[1]
+        monthly_ttc = annual_ttc / 12
+        self.data['abonnement_horaire_ttc'] = round(monthly_ttc / (days_in_month * 24), 6)
+
     async def _async_update_data(self) -> dict[Platform, dict[str, Any]]:
         """Get the latest data from Tarif EDF and updates the state."""
         data = self.config_entry.data
@@ -225,6 +368,10 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             parsed_content = csv.reader(response.content.decode('utf-8').splitlines(), delimiter=';')
             rows = list(parsed_content)
 
+            # Date de début de la grille officielle active (utilisée pour décider
+            # si la grille de secours Tempo doit s'appliquer)
+            official_effective_date = None
+
             for row in rows:
                 if row[1] == '' and row[2] == data['contract_power']:
                     if data['contract_type'] == CONTRACT_TYPE_BASE:
@@ -242,11 +389,24 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                         self.data['tempo_variable_hp_blanc_ttc'] = float(row[12].replace(",", "." ))
                         self.data['tempo_variable_hc_rouge_ttc'] = float(row[14].replace(",", "." ))
                         self.data['tempo_variable_hp_rouge_ttc'] = float(row[16].replace(",", "." ))
+                        official_effective_date = row[0]
 
                     self.data['last_refresh_at'] = dt_util.now()
 
                     break
             response.close
+
+            # Grille tarifaire Tempo de secours : appliquée uniquement tant que
+            # data.gouv.fr n'a pas publié une grille au moins aussi récente.
+            if data['contract_type'] == CONTRACT_TYPE_TEMPO:
+                self._apply_tempo_fallback(official_effective_date, data['contract_power'])
+
+            # Majoration abonnement auto-producteur avec injection (option)
+            self._apply_autoproducer_surcharge(data['contract_type'])
+
+        # Abonnement en €/h pour le mois en cours (recalculé à chaque cycle pour
+        # suivre les changements de mois : 28/29/30/31 jours)
+        self._update_hourly_subscription(data['contract_type'])
 
         if data['contract_type'] == CONTRACT_TYPE_TEMPO:
             today = dt_util.now().date()
