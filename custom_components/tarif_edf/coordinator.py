@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import timedelta, datetime, date
+import calendar
 import time
 import re
 from typing import Any
@@ -290,6 +291,34 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             f"+{surcharge_ttc} €/an TTC sur {fixe_key}"
         )
 
+    def _update_hourly_subscription(self, contract_type: str) -> None:
+        """Calcule le prix de l'abonnement en €/h pour le mois en cours.
+
+        L'abonnement annuel TTC est ramené à un coût mensuel (÷ 12), puis réparti
+        sur le nombre réel d'heures du mois courant (28, 29, 30 ou 31 jours × 24 h),
+        avec 6 décimales de précision.
+
+        Ainsi, un capteur d'intégration (somme de Riemann, unité €/h → €) branché
+        sur cette valeur accumule exactement le coût de l'abonnement : 1/12 de
+        l'annuel sur chaque mois, et le montant annuel complet sur douze mois,
+        quelle que soit la longueur des mois.
+        """
+        fixe_key = {
+            CONTRACT_TYPE_BASE: 'base_fixe_ttc',
+            CONTRACT_TYPE_HPHC: 'hphc_fixe_ttc',
+            CONTRACT_TYPE_TEMPO: 'tempo_fixe_ttc',
+        }.get(contract_type)
+
+        annual_ttc = self.data.get(fixe_key) if fixe_key else None
+        if annual_ttc is None:
+            self.data['abonnement_horaire_ttc'] = None
+            return
+
+        now = dt_util.now()
+        days_in_month = calendar.monthrange(now.year, now.month)[1]
+        monthly_ttc = annual_ttc / 12
+        self.data['abonnement_horaire_ttc'] = round(monthly_ttc / (days_in_month * 24), 6)
+
     async def _async_update_data(self) -> dict[Platform, dict[str, Any]]:
         """Get the latest data from Tarif EDF and updates the state."""
         data = self.config_entry.data
@@ -374,6 +403,10 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
 
             # Majoration abonnement auto-producteur avec injection (option)
             self._apply_autoproducer_surcharge(data['contract_type'])
+
+        # Abonnement en €/h pour le mois en cours (recalculé à chaque cycle pour
+        # suivre les changements de mois : 28/29/30/31 jours)
+        self._update_hourly_subscription(data['contract_type'])
 
         if data['contract_type'] == CONTRACT_TYPE_TEMPO:
             today = dt_util.now().date()
