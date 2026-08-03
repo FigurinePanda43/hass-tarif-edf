@@ -21,10 +21,13 @@ TEMPO_COLORS_MAPPING={
     3: "rouge"
 }
 TEMPO_FORECAST_DAYS=9
-# Fichier de secours contenant une grille tarifaire Tempo officielle déjà
-# connue mais pas encore publiée sur data.gouv.fr. Il est utilisé
+# Fichiers de secours contenant des grilles tarifaires officielles déjà connues
+# mais pas encore publiées sur data.gouv.fr (une par type de contrat, même
+# format que le jeu de données correspondant). Ils sont utilisés
 # automatiquement tant que data.gouv.fr n'a pas publié une grille au moins
-# aussi récente, puis ignoré sans intervention (voir coordinator.py).
+# aussi récente, puis ignorés sans intervention (voir coordinator.py).
+BASE_FALLBACK_FILENAME="base_fallback.csv"
+HPHC_FALLBACK_FILENAME="hphc_fallback.csv"
 TEMPO_FALLBACK_FILENAME="tempo_fallback.csv"
 TEMPO_DAY_START_AT="06:00"
 TEMPO_TOMRROW_AVAILABLE_AT="11:00"
