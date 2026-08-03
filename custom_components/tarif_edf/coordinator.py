@@ -34,6 +34,8 @@ from .const import (
     TEMPO_TOMRROW_AVAILABLE_AT,
     TEMPO_OFFPEAK_HOURS,
     TEMPO_FORECAST_DAYS,
+    BASE_FALLBACK_FILENAME,
+    HPHC_FALLBACK_FILENAME,
     TEMPO_FALLBACK_FILENAME,
     AUTOPRODUCER_INJECTION_SURCHARGE_HT,
     SUBSCRIPTION_VAT_RATE,
@@ -181,12 +183,14 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             self.logger.error(f"Exception lors de la récupération des prévisions Tempo: {e}")
             return self._forecast_cache or []
 
-    def _apply_tempo_fallback(self, official_effective_date: str | None, power: str) -> None:
-        """Applique une grille tarifaire Tempo de secours si nécessaire.
+    def _apply_tariff_fallback(self, contract_type: str, official_effective_date: str | None, power: str) -> None:
+        """Applique une grille tarifaire de secours si nécessaire.
 
-        Le fichier ``tempo_fallback.csv`` (livré avec l'intégration) contient une
-        grille tarifaire officielle déjà connue mais pas encore présente dans le
-        jeu de données data.gouv.fr. La grille de secours n'est appliquée que si :
+        Chaque type de contrat (Base, HP/HC, Tempo) dispose d'un fichier de
+        secours (livré avec l'intégration, même format que le jeu de données
+        data.gouv.fr correspondant) contenant une grille officielle déjà connue
+        mais pas encore présente sur data.gouv.fr. La grille de secours n'est
+        appliquée que si :
 
         - sa date de début est plus récente que celle de la grille officielle
           actuellement active sur data.gouv.fr, ET
@@ -196,9 +200,17 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
         aussi récente que celle du fichier de secours, ce dernier est ignoré
         automatiquement : aucune mise à jour de l'intégration n'est nécessaire.
         """
-        self.data['tempo_tarifs_secours'] = False
+        self.data['tarifs_secours'] = False
 
-        fallback_path = os.path.join(os.path.dirname(__file__), TEMPO_FALLBACK_FILENAME)
+        filename = {
+            CONTRACT_TYPE_BASE: BASE_FALLBACK_FILENAME,
+            CONTRACT_TYPE_HPHC: HPHC_FALLBACK_FILENAME,
+            CONTRACT_TYPE_TEMPO: TEMPO_FALLBACK_FILENAME,
+        }.get(contract_type)
+        if filename is None:
+            return
+
+        fallback_path = os.path.join(os.path.dirname(__file__), filename)
         if not os.path.exists(fallback_path):
             return
 
@@ -206,12 +218,19 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             with open(fallback_path, encoding='utf-8') as fallback_file:
                 fallback_rows = list(csv.reader(fallback_file, delimiter=';'))
         except OSError as err:
-            self.logger.warning(f"Lecture du fichier de secours Tempo impossible: {err}")
+            self.logger.warning(f"Lecture du fichier de secours {filename} impossible: {err}")
             return
+
+        # Nombre minimal de colonnes attendu selon le type de contrat
+        min_cols = {
+            CONTRACT_TYPE_BASE: 6,
+            CONTRACT_TYPE_HPHC: 8,
+            CONTRACT_TYPE_TEMPO: 16,
+        }[contract_type]
 
         fallback_row = None
         for row in fallback_rows:
-            if len(row) > 16 and row[1] == '' and row[2] == power:
+            if len(row) > min_cols and row[1] == '' and row[2] == power:
                 fallback_row = row
                 break
         if fallback_row is None:
@@ -220,7 +239,7 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
         try:
             fallback_date = datetime.strptime(fallback_row[0].strip(), '%d/%m/%Y').date()
         except ValueError:
-            self.logger.warning(f"Date de la grille de secours Tempo invalide: {fallback_row[0]!r}")
+            self.logger.warning(f"Date de la grille de secours {filename} invalide: {fallback_row[0]!r}")
             return
 
         official_date = None
@@ -239,24 +258,36 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
         # data.gouv.fr propose déjà une grille au moins aussi récente : on la garde
         if official_date is not None and official_date >= fallback_date:
             self.logger.info(
-                f"Grille officielle Tempo du {official_date.strftime('%d/%m/%Y')} disponible sur "
-                f"data.gouv.fr, fichier de secours ignoré"
+                f"Grille officielle {contract_type} du {official_date.strftime('%d/%m/%Y')} disponible "
+                f"sur data.gouv.fr, fichier de secours ignoré"
             )
             return
 
         # Appliquer les tarifs de secours (colonnes TTC identiques au fichier officiel)
-        self.data['tempo_fixe_ttc'] = float(fallback_row[4].replace(",", "."))
-        self.data['tempo_variable_hc_bleu_ttc'] = float(fallback_row[6].replace(",", "."))
-        self.data['tempo_variable_hp_bleu_ttc'] = float(fallback_row[8].replace(",", "."))
-        self.data['tempo_variable_hc_blanc_ttc'] = float(fallback_row[10].replace(",", "."))
-        self.data['tempo_variable_hp_blanc_ttc'] = float(fallback_row[12].replace(",", "."))
-        self.data['tempo_variable_hc_rouge_ttc'] = float(fallback_row[14].replace(",", "."))
-        self.data['tempo_variable_hp_rouge_ttc'] = float(fallback_row[16].replace(",", "."))
-        self.data['tempo_tarifs_secours'] = True
+        def _val(index):
+            return float(fallback_row[index].replace(",", "."))
+
+        if contract_type == CONTRACT_TYPE_BASE:
+            self.data['base_fixe_ttc'] = _val(4)
+            self.data['base_variable_ttc'] = _val(6)
+        elif contract_type == CONTRACT_TYPE_HPHC:
+            self.data['hphc_fixe_ttc'] = _val(4)
+            self.data['hphc_variable_hc_ttc'] = _val(6)
+            self.data['hphc_variable_hp_ttc'] = _val(8)
+        elif contract_type == CONTRACT_TYPE_TEMPO:
+            self.data['tempo_fixe_ttc'] = _val(4)
+            self.data['tempo_variable_hc_bleu_ttc'] = _val(6)
+            self.data['tempo_variable_hp_bleu_ttc'] = _val(8)
+            self.data['tempo_variable_hc_blanc_ttc'] = _val(10)
+            self.data['tempo_variable_hp_blanc_ttc'] = _val(12)
+            self.data['tempo_variable_hc_rouge_ttc'] = _val(14)
+            self.data['tempo_variable_hp_rouge_ttc'] = _val(16)
+
+        self.data['tarifs_secours'] = True
         self.data['last_refresh_at'] = dt_util.now()
         official_str = official_date.strftime('%d/%m/%Y') if official_date else "aucune"
         self.logger.warning(
-            f"Tarifs Tempo de secours appliqués (grille du {fallback_date.strftime('%d/%m/%Y')}) : "
+            f"Tarifs {contract_type} de secours appliqués (grille du {fallback_date.strftime('%d/%m/%Y')}) : "
             f"data.gouv.fr n'a pas encore publié cette grille "
             f"(dernière grille officielle active: {official_str})"
         )
@@ -389,17 +420,16 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                         self.data['tempo_variable_hp_blanc_ttc'] = float(row[12].replace(",", "." ))
                         self.data['tempo_variable_hc_rouge_ttc'] = float(row[14].replace(",", "." ))
                         self.data['tempo_variable_hp_rouge_ttc'] = float(row[16].replace(",", "." ))
-                        official_effective_date = row[0]
 
+                    official_effective_date = row[0]
                     self.data['last_refresh_at'] = dt_util.now()
 
                     break
             response.close
 
-            # Grille tarifaire Tempo de secours : appliquée uniquement tant que
+            # Grille tarifaire de secours : appliquée uniquement tant que
             # data.gouv.fr n'a pas publié une grille au moins aussi récente.
-            if data['contract_type'] == CONTRACT_TYPE_TEMPO:
-                self._apply_tempo_fallback(official_effective_date, data['contract_power'])
+            self._apply_tariff_fallback(data['contract_type'], official_effective_date, data['contract_power'])
 
             # Majoration abonnement auto-producteur avec injection (option)
             self._apply_autoproducer_surcharge(data['contract_type'])
