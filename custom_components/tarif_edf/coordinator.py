@@ -54,6 +54,48 @@ def get_remote_file(url: str):
         },
     )
 
+# --- Fonctions I/O bloquantes, destinées à être exécutées dans l'executor ---
+# (jamais directement depuis l'event loop). Elles réalisent l'appel réseau ET
+# la lecture/le décodage du corps de la réponse, car avec ``stream=True`` le
+# corps n'est lu qu'au premier accès à ``.json()``/``.content`` : ces accès
+# doivent donc rester hors de l'event loop.
+
+def fetch_json(url: str):
+    """Appel réseau + parsing JSON, exécutés dans l'executor."""
+    response = get_remote_file(url)
+    try:
+        return response.json()
+    finally:
+        response.close()
+
+def fetch_json_with_status(url: str):
+    """Appel réseau : renvoie (status_code, json|None). Exécuté dans l'executor."""
+    response = get_remote_file(url)
+    try:
+        status_code = response.status_code
+        data = response.json() if status_code == 200 else None
+        return status_code, data
+    finally:
+        response.close()
+
+def fetch_csv_rows(url: str):
+    """Appel réseau + décodage + parsing CSV, exécutés dans l'executor."""
+    response = get_remote_file(url)
+    try:
+        return list(csv.reader(response.content.decode('utf-8').splitlines(), delimiter=';'))
+    finally:
+        response.close()
+
+def read_csv_rows(path: str):
+    """Lecture de fichier + parsing CSV, exécutés dans l'executor.
+
+    Renvoie ``None`` si le fichier n'existe pas.
+    """
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding='utf-8') as csv_file:
+        return list(csv.reader(csv_file, delimiter=';'))
+
 def str_to_time(str):
     return datetime.strptime(str, '%H:%M').time()
 
@@ -143,8 +185,7 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                 return cached
 
         url = f"{TEMPO_COLOR_API_URL}/{date_str}"
-        response = await self.hass.async_add_executor_job(get_remote_file, url)
-        response_json = response.json()
+        response_json = await self.hass.async_add_executor_job(fetch_json, url)
 
         # Only overwrite cache if new result has a known color, or no cache exists
         if cached is None or response_json.get('codeJour', 0) in [1, 2, 3]:
@@ -160,11 +201,10 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             return self._forecast_cache
 
         try:
-            response = await self.hass.async_add_executor_job(
-                get_remote_file, TEMPO_FORECAST_API_URL
+            status_code, forecast_data = await self.hass.async_add_executor_job(
+                fetch_json_with_status, TEMPO_FORECAST_API_URL
             )
-            if response.status_code == 200:
-                forecast_data = response.json()
+            if status_code == 200:
                 if not isinstance(forecast_data, list):
                     self.logger.warning(
                         f"Réponse prévisions Tempo inattendue (type={type(forecast_data).__name__})"
@@ -176,14 +216,14 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                 return forecast_data
             else:
                 self.logger.warning(
-                    f"Erreur lors de la récupération des prévisions Tempo: {response.status_code}"
+                    f"Erreur lors de la récupération des prévisions Tempo: {status_code}"
                 )
                 return self._forecast_cache or []
         except Exception as e:
             self.logger.error(f"Exception lors de la récupération des prévisions Tempo: {e}")
             return self._forecast_cache or []
 
-    def _apply_tariff_fallback(self, contract_type: str, official_effective_date: str | None, power: str) -> None:
+    async def _apply_tariff_fallback(self, contract_type: str, official_effective_date: str | None, power: str) -> None:
         """Applique une grille tarifaire de secours si nécessaire.
 
         Chaque type de contrat (Base, HP/HC, Tempo) dispose d'un fichier de
@@ -210,15 +250,15 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
         if filename is None:
             return
 
+        # La lecture du fichier (existence + open + parsing CSV) est déportée
+        # dans l'executor pour ne pas bloquer l'event loop.
         fallback_path = os.path.join(os.path.dirname(__file__), filename)
-        if not os.path.exists(fallback_path):
-            return
-
         try:
-            with open(fallback_path, encoding='utf-8') as fallback_file:
-                fallback_rows = list(csv.reader(fallback_file, delimiter=';'))
+            fallback_rows = await self.hass.async_add_executor_job(read_csv_rows, fallback_path)
         except OSError as err:
             self.logger.warning(f"Lecture du fichier de secours {filename} impossible: {err}")
+            return
+        if fallback_rows is None:
             return
 
         # Nombre minimal de colonnes attendu selon le type de contrat
@@ -395,9 +435,8 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             elif data['contract_type'] == CONTRACT_TYPE_TEMPO:
                     url = TARIF_TEMPO_URL
 
-            response = await self.hass.async_add_executor_job(get_remote_file, url)
-            parsed_content = csv.reader(response.content.decode('utf-8').splitlines(), delimiter=';')
-            rows = list(parsed_content)
+            # Appel réseau + décodage + parsing CSV entièrement dans l'executor.
+            rows = await self.hass.async_add_executor_job(fetch_csv_rows, url)
 
             # Date de début de la grille officielle active (utilisée pour décider
             # si la grille de secours Tempo doit s'appliquer)
@@ -425,11 +464,10 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                     self.data['last_refresh_at'] = dt_util.now()
 
                     break
-            response.close
 
             # Grille tarifaire de secours : appliquée uniquement tant que
             # data.gouv.fr n'a pas publié une grille au moins aussi récente.
-            self._apply_tariff_fallback(data['contract_type'], official_effective_date, data['contract_power'])
+            await self._apply_tariff_fallback(data['contract_type'], official_effective_date, data['contract_power'])
 
             # Majoration abonnement auto-producteur avec injection (option)
             self._apply_autoproducer_surcharge(data['contract_type'])
