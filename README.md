@@ -4,6 +4,9 @@ Fork de [delphiki/hass-tarif-edf](https://github.com/delphiki/hass-tarif-edf) av
 
 ## Améliorations de ce fork
 
+### v2.4.2
+- **Correction : opérations bloquantes dans l'event loop** : Home Assistant signalait des appels bloquants (`open()`, lecture du corps HTTP via `requests`) exécutés depuis l'event loop asyncio. La lecture des fichiers de secours (`open()`/CSV) et la consommation des réponses réseau (`response.json()`, `response.content`) sont désormais entièrement déportées dans l'executor via `async_add_executor_job`. Aucun changement de comportement ni de format de données.
+
 ### v2.4.1
 - **Grilles de secours Base et Heures Creuses** : Étend le mécanisme de secours (jusque-là limité à Tempo) aux options Base (`base_fallback.csv`) et Heures Creuses (`hphc_fallback.csv`), avec la grille officielle EDF du **1ᵉʳ août 2026**. Tarifs Base : 0,2001 €/kWh (3 & 6 kVA), 0,1985 €/kWh (9–36 kVA). Tarifs HP/HC : HC 0,1589 €/kWh, HP 0,2142 €/kWh. Même bascule automatique que pour Tempo.
 
