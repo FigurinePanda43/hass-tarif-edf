@@ -16,6 +16,7 @@ from .const import (
     DEFAULT_REFRESH_INTERVAL,
     STORAGE_VERSION,
     STORAGE_KEY,
+    CONF_TEMPO_FORECAST,
 )
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -31,6 +32,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data[DOMAIN][entry.entry_id] = {
         "coordinator": coordinator,
+        # Valeur de l'option au chargement, pour détecter un changement qui
+        # nécessite d'ajouter / retirer les capteurs de prévision.
+        CONF_TEMPO_FORECAST: coordinator.tempo_forecast_enabled,
     }
 
     entry.async_on_unload(entry.add_update_listener(update_listener))
@@ -56,6 +60,13 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 async def update_listener(hass: HomeAssistant, entry: ConfigEntry):
     """Handle options update."""
-    hass.data[DOMAIN][entry.entry_id]['coordinator'].update_interval = timedelta(days=entry.options.get("refresh_interval", DEFAULT_REFRESH_INTERVAL))
+    entry_data = hass.data[DOMAIN][entry.entry_id]
+    if entry_data['coordinator'].tempo_forecast_enabled != entry_data.get(CONF_TEMPO_FORECAST):
+        # Activation / désactivation des prévisions Tempo : recharger
+        # l'intégration pour créer ou supprimer les capteurs J+1 à J+9.
+        hass.async_create_task(hass.config_entries.async_reload(entry.entry_id))
+        return True
+
+    entry_data['coordinator'].update_interval = timedelta(days=entry.options.get("refresh_interval", DEFAULT_REFRESH_INTERVAL))
 
     return True

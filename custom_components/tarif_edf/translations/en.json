@@ -14,6 +14,13 @@
                     "contract_type": "Option",
                     "power": "Power (kVA)"
                 }
+            },
+            "tempo": {
+                "title": "Tempo",
+                "description": "Adds 9 Tempo color forecast sensors with their probability. Can be changed later in the options.",
+                "data": {
+                    "tempo_forecast": "Enable Tempo forecasts D+1 to D+9 (open-dpe.fr)"
+                }
             }
         }
     },
@@ -22,7 +29,9 @@
             "init": {
                 "data": {
                     "refresh_interval": "Data refresh interval (in days)",
-                    "off_peak_hours_ranges": "Off peak hours ranges (HH:MM-HH:MM,HH:MM-HH:MM,...)"
+                    "off_peak_hours_ranges": "Off peak hours ranges (HH:MM-HH:MM,HH:MM-HH:MM,...)",
+                    "tempo_forecast": "Enable Tempo forecasts D+1 to D+9 (open-dpe.fr)",
+                    "autoproducteur_injection": "Self-producer with grid injection"
                 },
                 "description": "Customize the way the integration works"
             }

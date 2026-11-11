@@ -4,6 +4,9 @@ Fork de [delphiki/hass-tarif-edf](https://github.com/delphiki/hass-tarif-edf) av
 
 ## Améliorations de ce fork
 
+### v2.5.0
+- **Prévisions Tempo J+1 à J+9 optionnelles** : Lors de l'ajout d'une intégration Tempo, une étape supplémentaire propose d'activer (ou non) les capteurs de prévision. L'option est **décochée par défaut** pour les nouvelles installations et reste **modifiable ensuite** (Configurer → options). Désactivée, l'API open-dpe.fr n'est plus interrogée et les 9 capteurs `Tempo Prévision J+N` sont supprimés. Les intégrations Tempo déjà installées conservent leurs capteurs (option activée par défaut) jusqu'à ce qu'elle soit décochée.
+
 ### v2.4.2
 - **Correction : opérations bloquantes dans l'event loop** : Home Assistant signalait des appels bloquants (`open()`, lecture du corps HTTP via `requests`) exécutés depuis l'event loop asyncio. La lecture des fichiers de secours (`open()`/CSV) et la consommation des réponses réseau (`response.json()`, `response.content`) sont désormais entièrement déportées dans l'executor via `async_add_executor_job`. Aucun changement de comportement ni de format de données.
 
@@ -76,6 +79,8 @@ rm tarif_edf.zip
 |--------|-------------|-------------------|
 | `refresh_interval` | Intervalle de rafraîchissement des tarifs (jours) | 1 |
 | `off_peak_hours_ranges` | Plages horaires creuses (format: HH:MM-HH:MM) | 22:00-06:00 (Tempo) |
+| `autoproducteur_injection` | Majoration d'abonnement auto-producteur avec injection | Désactivé |
+| `tempo_forecast` | Capteurs de prévision Tempo J+1 à J+9 (Tempo uniquement, aussi proposé à l'installation) | Désactivé (nouvelle installation) / Activé (installation existante) |
 
 **Format des plages horaires** : `HH:MM-HH:MM` séparées par des virgules. Exemple : `22:00-06:00` ou `01:30-07:30,12:30-14:30`
 
@@ -115,6 +120,8 @@ rm tarif_edf.zip
 | `sensor.tarif_rouge_tempo_heures_pleines_ttc` | Red days peak rate | EUR/kWh |
 
 #### Capteurs de prévisions Tempo (J+1 à J+9)
+*Créés uniquement si l'option `tempo_forecast` est activée.*
+
 | Sensor | Description | Attributs |
 |--------|-------------|-----------|
 | `sensor.tempo_prevision_j_1` | Prévision couleur J+1 | `probabilite`, `date` |

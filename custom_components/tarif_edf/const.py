@@ -21,6 +21,13 @@ TEMPO_COLORS_MAPPING={
     3: "rouge"
 }
 TEMPO_FORECAST_DAYS=9
+# Option activant les capteurs de prévision Tempo J+1 à J+9 (open-dpe.fr).
+# Proposée décochée à la création d'une nouvelle intégration Tempo ; les
+# intégrations existantes (sans l'option enregistrée) restent activées pour ne
+# pas faire disparaître des capteurs déjà utilisés.
+CONF_TEMPO_FORECAST="tempo_forecast"
+DEFAULT_TEMPO_FORECAST_NEW_ENTRY=False
+DEFAULT_TEMPO_FORECAST_EXISTING_ENTRY=True
 # Fichiers de secours contenant des grilles tarifaires officielles déjà connues
 # mais pas encore publiées sur data.gouv.fr (une par type de contrat, même
 # format que le jeu de données correspondant). Ils sont utilisés

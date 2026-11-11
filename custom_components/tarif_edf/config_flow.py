@@ -18,7 +18,10 @@ from .const import (
     CONTRACT_TYPE_BASE,
     CONTRACT_TYPE_HPHC,
     CONTRACT_TYPE_TEMPO,
-    TEMPO_OFFPEAK_HOURS
+    TEMPO_OFFPEAK_HOURS,
+    CONF_TEMPO_FORECAST,
+    DEFAULT_TEMPO_FORECAST_NEW_ENTRY,
+    DEFAULT_TEMPO_FORECAST_EXISTING_ENTRY,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,11 +40,29 @@ STEP_USER = vol.Schema(
     }
 )
 
+STEP_TEMPO = vol.Schema(
+    {
+        vol.Required(CONF_TEMPO_FORECAST, default=DEFAULT_TEMPO_FORECAST_NEW_ENTRY): bool,
+    }
+)
+
 @config_entries.HANDLERS.register(DOMAIN)
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Tarif EDF."""
 
     VERSION = 1
+
+    def __init__(self) -> None:
+        """Initialize the config flow."""
+        self._user_input: dict[str, Any] = {}
+
+    def _create_entry(self, options: dict[str, Any] | None = None) -> FlowResult:
+        user_input = self._user_input
+        return self.async_create_entry(
+            title="Option "+str.upper(user_input['contract_type']) + ", " + user_input['contract_power']+"kVA",
+            data=user_input,
+            options=options or {},
+        )
 
     async def async_step_user(self, user_input: dict | None = None) -> FlowResult:
         """Handle a flow initialized by the user."""
@@ -52,7 +73,23 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 step_id="user", data_schema=STEP_USER
             )
 
-        return self.async_create_entry(title="Option "+str.upper(user_input['contract_type']) + ", " + user_input['contract_power']+"kVA", data=user_input)
+        self._user_input = user_input
+
+        if user_input['contract_type'] == CONTRACT_TYPE_TEMPO:
+            return await self.async_step_tempo()
+
+        return self._create_entry()
+
+    async def async_step_tempo(self, user_input: dict | None = None) -> FlowResult:
+        """Options spécifiques au contrat Tempo (prévisions J+1 à J+9)."""
+        if user_input is None:
+            return self.async_show_form(
+                step_id="tempo", data_schema=STEP_TEMPO
+            )
+
+        return self._create_entry(
+            options={CONF_TEMPO_FORECAST: bool(user_input.get(CONF_TEMPO_FORECAST, DEFAULT_TEMPO_FORECAST_NEW_ENTRY))}
+        )
 
     @staticmethod
     @callback
@@ -87,13 +124,19 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if config_entry.data['contract_type'] == CONTRACT_TYPE_TEMPO:
             default_offpeak_hours = TEMPO_OFFPEAK_HOURS
 
+        schema = {
+            vol.Optional("refresh_interval", default=config_entry.options.get("refresh_interval", DEFAULT_REFRESH_INTERVAL)): int,
+            vol.Optional("off_peak_hours_ranges", default=config_entry.options.get("off_peak_hours_ranges", default_offpeak_hours)): str,
+            vol.Optional("autoproducteur_injection", default=config_entry.options.get("autoproducteur_injection", False)): bool,
+        }
+
+        if config_entry.data['contract_type'] == CONTRACT_TYPE_TEMPO:
+            schema[vol.Optional(
+                CONF_TEMPO_FORECAST,
+                default=config_entry.options.get(CONF_TEMPO_FORECAST, DEFAULT_TEMPO_FORECAST_EXISTING_ENTRY),
+            )] = bool
+
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional("refresh_interval", default=config_entry.options.get("refresh_interval", DEFAULT_REFRESH_INTERVAL)): int,
-                    vol.Optional("off_peak_hours_ranges", default=config_entry.options.get("off_peak_hours_ranges", default_offpeak_hours)): str,
-                    vol.Optional("autoproducteur_injection", default=config_entry.options.get("autoproducteur_injection", False)): bool,
-                }
-            ),
+            data_schema=vol.Schema(schema),
         )

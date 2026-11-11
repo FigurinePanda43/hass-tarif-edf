@@ -14,6 +14,13 @@
                     "contract_type": "Option",
                     "contract_power": "Puissance (kVA)"
                 }
+            },
+            "tempo": {
+                "title": "Tempo",
+                "description": "Ajoute 9 capteurs de prévision de couleur Tempo avec leur probabilité. Modifiable ensuite dans les options.",
+                "data": {
+                    "tempo_forecast": "Activer les prévisions Tempo J+1 à J+9 (open-dpe.fr)"
+                }
             }
         }
     },
@@ -22,7 +29,9 @@
             "init": {
                 "data": {
                     "refresh_interval": "Intervalle de mise à jour (en jours)",
-                    "off_peak_hours_ranges": "Créneaux heures creuses (HH:MM-HH:MM,HH:MM-HH:MM,...)"
+                    "off_peak_hours_ranges": "Créneaux heures creuses (HH:MM-HH:MM,HH:MM-HH:MM,...)",
+                    "tempo_forecast": "Activer les prévisions Tempo J+1 à J+9 (open-dpe.fr)",
+                    "autoproducteur_injection": "Auto-producteur avec injection"
                 },
                 "description": "Personnalisez le fonctionnement de l'intégration"
             }

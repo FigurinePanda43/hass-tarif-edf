@@ -2,6 +2,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
+from homeassistant.helpers import entity_registry as er
 from homeassistant.components.sensor import (
     SensorEntity,
 )
@@ -58,16 +59,27 @@ async def async_setup_entry(
             TarifEdfSensor(coordinator, 'tempo_variable_hc_blanc_ttc', 'Tarif Blanc Tempo Heures creuses TTC', 'EUR/kWh'),
             TarifEdfSensor(coordinator, 'tempo_variable_hp_blanc_ttc', 'Tarif Blanc Tempo Heures pleines TTC', 'EUR/kWh'),
         ])
-        # Capteurs de prévisions Tempo (J+1 à J+9)
-        for day in range(1, TEMPO_FORECAST_DAYS + 1):
-            sensors.append(
-                TarifEdfForecastSensor(
-                    coordinator,
-                    f'tempo_prevision_j{day}_couleur',
-                    f'Tempo Prévision J+{day}',
-                    day
+        # Capteurs de prévisions Tempo (J+1 à J+9), uniquement si l'option
+        # est activée. Sinon, on supprime les entités éventuellement créées
+        # auparavant pour ne pas laisser de capteurs orphelins.
+        if coordinator.tempo_forecast_enabled:
+            for day in range(1, TEMPO_FORECAST_DAYS + 1):
+                sensors.append(
+                    TarifEdfForecastSensor(
+                        coordinator,
+                        f'tempo_prevision_j{day}_couleur',
+                        f'Tempo Prévision J+{day}',
+                        day
+                    )
                 )
-            )
+        else:
+            entity_registry = er.async_get(hass)
+            for day in range(1, TEMPO_FORECAST_DAYS + 1):
+                entity_id = entity_registry.async_get_entity_id(
+                    "sensor", DOMAIN, f"tarif_edf_Tempo Prévision J+{day}"
+                )
+                if entity_id is not None:
+                    entity_registry.async_remove(entity_id)
 
     # Capteur d'abonnement annuel TTC (inclut la majoration auto-producteur
     # avec injection si l'option est activée)
