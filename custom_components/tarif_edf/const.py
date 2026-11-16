@@ -41,6 +41,9 @@ SUBSCRIPTION_VAT_RATE=0.20
 
 DEFAULT_REFRESH_INTERVAL=1
 
+# (connect, read) timeout in seconds for every remote call
+HTTP_TIMEOUT = (10, 30)
+
 # Storage constants
 STORAGE_VERSION = 1
 STORAGE_KEY = "tarif_edf_tempo_cache"

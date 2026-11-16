@@ -15,12 +15,13 @@ import csv
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import TimestampDataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
     DEFAULT_REFRESH_INTERVAL,
+    HTTP_TIMEOUT,
     CONTRACT_TYPE_BASE,
     CONTRACT_TYPE_HPHC,
     CONTRACT_TYPE_TEMPO,
@@ -49,6 +50,7 @@ def get_remote_file(url: str):
     return requests.get(
         url,
         stream=True,
+        timeout=HTTP_TIMEOUT,
         headers={
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36"
         },
@@ -82,6 +84,7 @@ def fetch_csv_rows(url: str):
     """Appel réseau + décodage + parsing CSV, exécutés dans l'executor."""
     response = get_remote_file(url)
     try:
+        response.raise_for_status()
         return list(csv.reader(response.content.decode('utf-8').splitlines(), delimiter=';'))
     finally:
         response.close()
@@ -436,7 +439,15 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
                     url = TARIF_TEMPO_URL
 
             # Appel réseau + décodage + parsing CSV entièrement dans l'executor.
-            rows = await self.hass.async_add_executor_job(fetch_csv_rows, url)
+            # When data.gouv.fr is unreachable, fall through to the fallback grid
+            # instead of failing the whole update.
+            fetch_error = None
+            try:
+                rows = await self.hass.async_add_executor_job(fetch_csv_rows, url)
+            except requests.RequestException as err:
+                fetch_error = err
+                rows = []
+                self.logger.warning(f"Grille tarifaire indisponible sur data.gouv.fr ({err}), utilisation de la grille de secours si possible")
 
             # Date de début de la grille officielle active (utilisée pour décider
             # si la grille de secours Tempo doit s'appliquer)
@@ -468,6 +479,16 @@ class TarifEdfDataUpdateCoordinator(TimestampDataUpdateCoordinator):
             # Grille tarifaire de secours : appliquée uniquement tant que
             # data.gouv.fr n'a pas publié une grille au moins aussi récente.
             await self._apply_tariff_fallback(data['contract_type'], official_effective_date, data['contract_power'])
+
+            # No grid at all (download failed, no applicable fallback, nothing from a
+            # previous refresh): let Home Assistant retry the setup later.
+            required_key = {
+                CONTRACT_TYPE_BASE: 'base_variable_ttc',
+                CONTRACT_TYPE_HPHC: 'hphc_variable_hp_ttc',
+                CONTRACT_TYPE_TEMPO: 'tempo_variable_hp_bleu_ttc',
+            }[data['contract_type']]
+            if fetch_error is not None and self.data.get(required_key) is None:
+                raise UpdateFailed(f"Grille tarifaire indisponible sur data.gouv.fr: {fetch_error}") from fetch_error
 
             # Majoration abonnement auto-producteur avec injection (option)
             self._apply_autoproducer_surcharge(data['contract_type'])
